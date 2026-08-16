@@ -7,7 +7,8 @@
 //   --no-probe  Skip live probing; trust all venice text models as working.
 //
 // Reads the a0t API key from ~/.pi/agent/auth.json.
-// Writes to ~/.pi/agent/models.json.
+// Replaces the a0t provider in ~/.pi/agent/models.json; all other
+// providers and top-level keys are preserved.
 
 const fs = require('fs');
 const path = require('path');
@@ -184,21 +185,40 @@ async function main() {
   // Build model entries
   const models = order.map(id => buildEntry(byId[id]));
 
-  const out = {
-    providers: {
-      a0t: {
-        baseUrl: 'https://llm.agent-zero.ai/v1',
-        api: 'openai-completions',
-        apiKey: '$AGENT_ZERO',
-        authHeader: true,
-        compat: { supportsReasoningEffort: false },
-        models,
-      },
-    },
+  // Merge into the existing models.json: replace only the a0t provider
+  // entry, leave all other providers and top-level keys untouched.
+  let config = {};
+  if (fs.existsSync(CONFIG_PATH)) {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8').trim();
+    if (raw) {
+      try {
+        config = JSON.parse(raw);
+      } catch (e) {
+        throw new Error('Cannot parse ' + CONFIG_PATH + ' (' + e.message + '). Fix or remove it and retry.');
+      }
+      if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+        throw new Error(CONFIG_PATH + ' is not a JSON object. Fix or remove it and retry.');
+      }
+    }
+  }
+  if (typeof config.providers !== 'object' || config.providers === null) config.providers = {};
+
+  const preserved = Object.keys(config.providers).filter(k => k !== 'a0t').length;
+
+  // Assigning to an existing key keeps its position; a new key is appended.
+  config.providers.a0t = {
+    baseUrl: 'https://llm.agent-zero.ai/v1',
+    api: 'openai-completions',
+    apiKey: '$AGENT_ZERO',
+    authHeader: true,
+    compat: { supportsReasoningEffort: false },
+    models,
   };
 
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(out, null, 2) + '\n');
-  log('Wrote ' + models.length + ' models to ' + CONFIG_PATH);
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+  log('Wrote ' + models.length + ' a0t models to ' + CONFIG_PATH +
+    (preserved ? ' (preserved ' + preserved + ' other provider' + (preserved > 1 ? 's' : '') + ')' : ''));
 
   // Print family summary
   log('\nFamily order (newest first):');

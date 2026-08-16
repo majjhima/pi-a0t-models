@@ -14,7 +14,7 @@ Manages the `a0t` provider entries in pi's `models.json` by selecting from the v
 3. Filters to working models only (HTTP 200 with a real completion)
 4. Groups models by family (GLM, Claude, GPT, Gemini, Gemma, Grok, Qwen, DeepSeek, Kimi, etc.)
 5. Sorts families newest-first (by newest member's release date), and within each family sorts newest-version-first
-6. Writes the result to `~/.pi/agent/models.json` (the only location pi reads)
+6. Writes the result to `~/.pi/agent/models.json` (the only location pi reads), replacing only the `a0t` provider entry — all other providers and top-level keys are preserved. If the existing file can't be parsed, the script aborts instead of clobbering it.
 
 ## Usage
 

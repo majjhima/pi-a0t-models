@@ -45,7 +45,7 @@ Complete these steps **before** running the skill or writing any model configura
    export AGENT_ZERO="YOUR_A0T_API_KEY"   # or A0T_API_KEY
    ```
 
-3. **Back up any existing model config** if you have one you care about. The script **overwrites** `~/.pi/agent/models.json`:
+3. **Back up any existing model config** (cheap insurance). The script only replaces the `a0t` provider entry in `~/.pi/agent/models.json` — other providers are preserved — and it aborts rather than touch an unparseable file, but a backup costs nothing:
    ```bash
    cp ~/.pi/agent/models.json ~/.pi/agent/models.json.bak 2>/dev/null
    ```
@@ -82,7 +82,7 @@ After the config is written, restart pi and pick a model with `/model` — the a
 4. Groups by family; `e2ee-` encrypted variants group with their base family
 5. Sorts families by newest member's release date, and versions newest-first within each family
 6. Derives each entry's `reasoning`, `input` modalities, `contextWindow`, `maxTokens`, and `cost` from the venice catalog
-7. Writes the provider config (`baseUrl`, `apiKey: $AGENT_ZERO`, etc.) plus the model list to `~/.pi/agent/models.json`
+7. Merges the provider config (`baseUrl`, `apiKey: $AGENT_ZERO`, etc.) plus the model list into `~/.pi/agent/models.json`, replacing only the `a0t` provider entry and leaving all other providers and top-level keys untouched
 
 ## Package structure
 

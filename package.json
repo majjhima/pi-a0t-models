@@ -1,0 +1,14 @@
+{
+  "name": "pi-a0t-models",
+  "version": "1.0.0",
+  "description": "Pi package providing the a0t-models skill: manage a0t (agent-zero.ai) provider models in pi's models.json from the venice.ai text model catalog.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "MIT",
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  }
+}

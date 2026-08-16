@@ -1,5 +1,5 @@
 ---
-name: a0t-models
+name: pi-a0t-models
 description: Manage a0t (agent-zero.ai) provider models in pi's models.json. Fetches the venice.ai text model catalog, live-probes each against the a0t endpoint to find working models, then writes the config grouped by family with newest families and newest versions first. Use when adding, updating, or refreshing a0t models.
 ---
 

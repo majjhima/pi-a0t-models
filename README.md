@@ -1,6 +1,6 @@
 # pi-a0t-models
 
-A [pi](https://github.com/earendil-works/pi-coding-agent) package providing the **a0t-models** skill. The skill manages the `a0t` provider ([agent-zero.ai](https://agent-zero.ai)) entries in pi's `models.json` by selecting from the venice.ai text model catalog.
+A [pi](https://github.com/earendil-works/pi-coding-agent) package providing the **pi-a0t-models** skill. The skill manages the `a0t` provider ([agent-zero.ai](https://agent-zero.ai)) entries in pi's `models.json` by selecting from the venice.ai text model catalog.
 
 It fetches the catalog, live-probes each model against the a0t endpoint, keeps only the ones that actually work, groups them by family (GLM, Claude, GPT, Gemini, Grok, Qwen, DeepSeek, Kimi, …), sorts newest families and newest versions first, and writes the result to pi's model configuration.
 
@@ -30,7 +30,7 @@ Complete these steps **before** running the skill or writing any model configura
    ```bash
    pi list
    ```
-   In an interactive session you can also check that `/skill:a0t-models` is available.
+   In an interactive session you can also check that `/skill:pi-a0t-models` is available.
 
 2. **Configure your a0t API key.** The script reads the key from `~/.pi/agent/auth.json`. Add an `a0t` entry:
    ```json
@@ -57,7 +57,7 @@ Complete these steps **before** running the skill or writing any model configura
 Once the steps above are done, either let pi run the skill:
 
 ```
-/skill:a0t-models
+/skill:pi-a0t-models
 ```
 
 or simply ask pi to "add/refresh the a0t models" — the skill loads automatically when the task matches.
@@ -66,10 +66,10 @@ You can also run the script directly (path depends on where the package is insta
 
 ```bash
 # Full refresh: fetch catalog, probe all models, write config
-node ~/.pi/agent/git/github.com/majjhima/pi-a0t-models/skills/a0t-models/update-models.js
+node ~/.pi/agent/git/github.com/majjhima/pi-a0t-models/skills/pi-a0t-models/update-models.js
 
 # Skip probing (use all venice text models without testing — faster but may include broken ones)
-node ~/.pi/agent/git/github.com/majjhima/pi-a0t-models/skills/a0t-models/update-models.js --no-probe
+node ~/.pi/agent/git/github.com/majjhima/pi-a0t-models/skills/pi-a0t-models/update-models.js --no-probe
 ```
 
 After the config is written, restart pi and pick a model with `/model` — the a0t models appear as `A0T <name>`, grouped newest families first.
@@ -92,7 +92,7 @@ pi-a0t-models/
 ├── README.md
 ├── LICENSE
 └── skills/
-    └── a0t-models/
+    └── pi-a0t-models/
         ├── SKILL.md        # skill instructions (loaded on-demand by the agent)
         └── update-models.js
 ```

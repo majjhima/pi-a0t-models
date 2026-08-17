@@ -1,6 +1,6 @@
 ---
 name: pi-a0t-models
-description: Manage a0t (agent-zero.ai) provider models in pi's models.json. Fetches the venice.ai text model catalog, live-probes each against the a0t endpoint to find working models, then writes the config grouped by family with newest families and newest versions first. Use when adding, updating, or refreshing a0t models.
+description: Manage a0t (agent-zero.ai) provider models in pi's models.json. Fetches the venice.ai text model catalog and writes the config grouped by family with newest families and newest versions first; can optionally live-probe each model against the a0t endpoint to keep only working ones. Use when adding, updating, or refreshing a0t models.
 ---
 
 # A0T Models
@@ -10,25 +10,33 @@ Manages the `a0t` provider entries in pi's `models.json` by selecting from the v
 ## What It Does
 
 1. Fetches all text models from `https://api.venice.ai/api/v1/models`
-2. Live-probes each model against `https://llm.agent-zero.ai/v1/chat/completions` to confirm it works (sequential, 30s timeout each — gentle on resources)
-3. Filters to working models only (HTTP 200 with a real completion)
-4. Groups models by family (GLM, Claude, GPT, Gemini, Gemma, Grok, Qwen, DeepSeek, Kimi, etc.)
-5. Sorts families newest-first (by newest member's release date), and within each family sorts newest-version-first
-6. Writes the result to `~/.pi/agent/models.json` (the only location pi reads), replacing only the `a0t` provider entry — all other providers and top-level keys are preserved. If the existing file can't be parsed, the script aborts instead of clobbering it.
+2. Groups models by family (GLM, Claude, GPT, Gemini, Gemma, Grok, Qwen, DeepSeek, Kimi, etc.)
+3. Sorts families newest-first (by newest member's release date), and within each family sorts newest-version-first
+4. Writes the result to `~/.pi/agent/models.json` (the only location pi reads), replacing only the `a0t` provider entry — all other providers and top-level keys are preserved. If the existing file can't be parsed, the script aborts instead of clobbering it. On its first write, an existing models.json is backed up to `models.json.bak` (the backup is never overwritten).
+
+With `--probe`, each catalog model is first live-tested against `https://llm.agent-zero.ai/v1/chat/completions` (sequential, 30s timeout each — gentle on resources) and only working models (HTTP 200 with a real completion) are kept. Probing is off by default so the script runs with zero setup: no API key, no existing `auth.json` or `models.json` required.
 
 ## Usage
 
 Run `update-models.js` from this skill's directory (paths below are relative to it):
 
 ```bash
-# Full refresh: fetch catalog, probe all models, write config
+# Default: fetch catalog and write config. No key needed — works on a fresh
+# pi install before any auth or models are defined.
 node update-models.js
 
-# Skip probing (use all venice text models without testing — faster but may include broken ones)
-node update-models.js --no-probe
+# Live-probe each model against a0t and keep only working ones (needs a key)
+node update-models.js --probe
+
+# First-time probing setup in one command: store the key (same format as /login) and probe
+node update-models.js --probe --api-key <key> --save-key
 ```
 
-The script reads the a0t API key from `~/.pi/agent/auth.json`. It takes ~3-5 minutes for a full probe of ~100+ models.
+The API key is only needed with `--probe`. Resolution order: `--api-key` flag, `~/.pi/agent/auth.json` (written by `/login a0t` or `--save-key`), then the `AGENT_ZERO` / `A0T_API_KEY` environment variables.
+
+If `--probe` is requested but no key is found, the script writes a bootstrap `a0t` provider with an empty model list to `models.json` (enough for `/login a0t` to work in pi) and exits with instructions — it never requires manual key-file editing. A full probe of ~100+ models takes ~3-5 minutes.
+
+After the config is written, the user still needs an a0t key configured (`/login a0t` in pi, or `--api-key ... --save-key`) before the models can actually be used.
 
 ## Sorting Logic
 

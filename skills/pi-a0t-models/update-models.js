@@ -1,14 +1,31 @@
 #!/usr/bin/env node
-// update-models.js — Fetch venice.ai text models, probe the a0t endpoint for
-// working ones, then write pi's models.json grouped by family (newest families
-// first, newest version first within each family).
+// update-models.js — Fetch the venice.ai text model catalog and write pi's
+// models.json grouped by family (newest families first, newest version first
+// within each family). Optionally live-probe each model against the a0t
+// endpoint and keep only working ones.
 //
-// Usage:  node update-models.js [--no-probe]
-//   --no-probe  Skip live probing; trust all venice text models as working.
+// Usage:  node update-models.js [--probe] [--api-key <key>] [--save-key]
+//   --probe         Live-probe each catalog model against the a0t endpoint and
+//                   keep only working ones (needs an API key, ~3-5 min).
+//   --api-key <key> Use this a0t API key for probing (highest precedence).
+//   --save-key      Persist --api-key to ~/.pi/agent/auth.json (same format
+//                   as /login), so no manual key setup is needed.
+//   --no-probe      Accepted for backwards compatibility (probing is off by
+//                   default).
 //
-// Reads the a0t API key from ~/.pi/agent/auth.json.
+// Zero-setup bootstrap: the default run needs no API key and no existing
+// auth.json or models.json — it just writes the full venice text catalog as
+// a0t models, ready for pi to use once a key is configured.
+//
+// Key resolution order (--probe only): --api-key flag, ~/.pi/agent/auth.json,
+// then the AGENT_ZERO / A0T_API_KEY environment variables. If --probe is
+// requested but no key is found, a bootstrap a0t provider with an empty model
+// list is written to models.json (so that /login a0t works) and the script
+// exits with next-step instructions.
+//
 // Replaces the a0t provider in ~/.pi/agent/models.json; all other
-// providers and top-level keys are preserved.
+// providers and top-level keys are preserved. On its first write it backs
+// up an existing models.json to models.json.bak (never overwritten).
 
 const fs = require('fs');
 const path = require('path');
@@ -24,14 +41,107 @@ const AUTH_PATH = path.join(HOME, '.pi', 'agent', 'auth.json');
 
 function log(msg) { process.stderr.write(msg + '\n'); }
 
-function getApiKey() {
+function parseArgs(argv) {
+  const args = { probe: false, apiKey: undefined, saveKey: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--probe') args.probe = true;
+    else if (a === '--no-probe') { /* default behavior; accepted for backwards compatibility */ }
+    else if (a === '--save-key') args.saveKey = true;
+    else if (a === '--api-key') {
+      const v = argv[++i];
+      if (!v) throw new Error('--api-key requires a value');
+      args.apiKey = v;
+    } else {
+      throw new Error('Unknown argument: ' + a);
+    }
+  }
+  if (args.saveKey && !args.apiKey) throw new Error('--save-key requires --api-key');
+  return args;
+}
+
+// Returns the key or null if none is configured anywhere.
+function getApiKey(flagKey) {
+  if (flagKey) return flagKey;
   try {
     const auth = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf8'));
     if (auth.a0t && auth.a0t.key) return auth.a0t.key;
   } catch (e) { /* fall through */ }
-  const env = process.env.AGENT_ZERO || process.env.A0T_API_KEY;
-  if (env) return env;
-  throw new Error('No a0t API key found in ' + AUTH_PATH + ' or environment');
+  return process.env.AGENT_ZERO || process.env.A0T_API_KEY || null;
+}
+
+// Persist the key to auth.json in pi's own /login format, preserving all
+// other provider entries. Aborts on an unparseable file.
+function saveApiKey(key) {
+  let auth = {};
+  if (fs.existsSync(AUTH_PATH)) {
+    const raw = fs.readFileSync(AUTH_PATH, 'utf8').trim();
+    if (raw) {
+      try {
+        auth = JSON.parse(raw);
+      } catch (e) {
+        throw new Error('Cannot parse ' + AUTH_PATH + ' (' + e.message + '). Fix or remove it and retry.');
+      }
+      if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) {
+        throw new Error(AUTH_PATH + ' is not a JSON object. Fix or remove it and retry.');
+      }
+    }
+  }
+  auth.a0t = { type: 'api_key', key };
+  fs.mkdirSync(path.dirname(AUTH_PATH), { recursive: true });
+  fs.writeFileSync(AUTH_PATH, JSON.stringify(auth, null, 2) + '\n', { mode: 0o600 });
+}
+
+// The a0t provider entry written to models.json.
+function a0tProviderEntry(models) {
+  return {
+    baseUrl: 'https://llm.agent-zero.ai/v1',
+    api: 'openai-completions',
+    apiKey: '$AGENT_ZERO',
+    authHeader: true,
+    compat: { supportsReasoningEffort: false },
+    models,
+  };
+}
+
+// Read models.json for merging. Aborts on an unparseable file rather than
+// clobbering it. Returns {} when the file is missing or empty.
+function readConfig() {
+  if (!fs.existsSync(CONFIG_PATH)) return {};
+  const raw = fs.readFileSync(CONFIG_PATH, 'utf8').trim();
+  if (!raw) return {};
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('Cannot parse ' + CONFIG_PATH + ' (' + e.message + '). Fix or remove it and retry.');
+  }
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+    throw new Error(CONFIG_PATH + ' is not a JSON object. Fix or remove it and retry.');
+  }
+  return config;
+}
+
+// Back up an existing models.json to models.json.bak before the first
+// write. Never overwrites an existing backup.
+function backupConfig() {
+  const bak = CONFIG_PATH + '.bak';
+  if (!fs.existsSync(CONFIG_PATH) || fs.existsSync(bak)) return;
+  fs.copyFileSync(CONFIG_PATH, bak);
+  log('Backed up existing config to ' + bak);
+}
+
+// Write a bootstrap a0t provider with an empty model list so that pi's
+// /login a0t becomes available. Never touches an existing a0t entry.
+function writeBootstrapProvider() {
+  const config = readConfig();
+  if (typeof config.providers !== 'object' || config.providers === null) config.providers = {};
+  if (config.providers.a0t) return false;
+  config.providers.a0t = a0tProviderEntry([]);
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  backupConfig();
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+  return true;
 }
 
 function round(n, dp) {
@@ -121,8 +231,25 @@ async function probeModel(apiKey, id) {
 // ── main ─────────────────────────────────────────────────────────────────
 
 async function main() {
-  const skipProbe = process.argv.includes('--no-probe');
-  const apiKey = getApiKey();
+  const args = parseArgs(process.argv.slice(2));
+  const apiKey = getApiKey(args.apiKey);
+
+  if (args.saveKey) {
+    saveApiKey(args.apiKey);
+    log('Saved a0t API key to ' + AUTH_PATH + ' (same format as /login).');
+  }
+
+  if (args.probe && !apiKey) {
+    log('Probing needs an a0t API key (checked --api-key, ' + AUTH_PATH + ', AGENT_ZERO / A0T_API_KEY).');
+    if (writeBootstrapProvider()) {
+      log('Wrote a bootstrap a0t provider (no models yet) to ' + CONFIG_PATH + '.');
+    }
+    log('\nNext step — pick one:');
+    log('  1. Start pi and run  /login a0t  to paste your key, then re-run with --probe.');
+    log('  2. Pass the key directly:  node update-models.js --probe --api-key <key> [--save-key]');
+    log('  3. Skip probing (default, no key needed):  node update-models.js');
+    return;
+  }
 
   log('Fetching venice.ai model catalog…');
   const vRes = await fetch(VENICE_URL);
@@ -135,9 +262,9 @@ async function main() {
 
   // Determine working set
   let workingIds;
-  if (skipProbe) {
+  if (!args.probe) {
     workingIds = textModels.map(m => m.id);
-    log('Skipping probe; using all ' + workingIds.length + ' text models.');
+    log('Probe off (default; pass --probe to live-test each model). Using all ' + workingIds.length + ' text models.');
   } else {
     log('Probing each model against a0t (sequential, 30s timeout each)…');
     workingIds = [];
@@ -187,35 +314,16 @@ async function main() {
 
   // Merge into the existing models.json: replace only the a0t provider
   // entry, leave all other providers and top-level keys untouched.
-  let config = {};
-  if (fs.existsSync(CONFIG_PATH)) {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf8').trim();
-    if (raw) {
-      try {
-        config = JSON.parse(raw);
-      } catch (e) {
-        throw new Error('Cannot parse ' + CONFIG_PATH + ' (' + e.message + '). Fix or remove it and retry.');
-      }
-      if (typeof config !== 'object' || config === null || Array.isArray(config)) {
-        throw new Error(CONFIG_PATH + ' is not a JSON object. Fix or remove it and retry.');
-      }
-    }
-  }
+  const config = readConfig();
   if (typeof config.providers !== 'object' || config.providers === null) config.providers = {};
 
   const preserved = Object.keys(config.providers).filter(k => k !== 'a0t').length;
 
   // Assigning to an existing key keeps its position; a new key is appended.
-  config.providers.a0t = {
-    baseUrl: 'https://llm.agent-zero.ai/v1',
-    api: 'openai-completions',
-    apiKey: '$AGENT_ZERO',
-    authHeader: true,
-    compat: { supportsReasoningEffort: false },
-    models,
-  };
+  config.providers.a0t = a0tProviderEntry(models);
 
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  backupConfig();
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
   log('Wrote ' + models.length + ' a0t models to ' + CONFIG_PATH +
     (preserved ? ' (preserved ' + preserved + ' other provider' + (preserved > 1 ? 's' : '') + ')' : ''));
